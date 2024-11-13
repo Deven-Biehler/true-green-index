@@ -1,6 +1,7 @@
 import os
 
 
+
 def split_test_train_val():
     path = "data/parks_urban_data/"
     class1 = "green"

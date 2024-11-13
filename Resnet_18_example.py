@@ -212,7 +212,7 @@ if __name__ == '__main__':
         ])
     }
 
-    data_dir = 'data/resized_parks_urban_data'
+    data_dir = 'data/Seattke_Parks/Patches'
     image_datasets = {x: datasets.ImageFolder(os.path.join(data_dir, x),
                                             data_transforms[x])
                     for x in ['train', 'val', 'test']}
