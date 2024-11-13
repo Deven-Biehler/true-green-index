@@ -1,31 +1,81 @@
 import os
+import cv2
+import numpy as np
+import geopandas as gpd
+import rasterio
+import rasterio.features
+import rasterio.windows
+import matplotlib.pyplot as plt
+from PIL import Image
 
+
+
+def load_data(park_path, sentinel_path):
+    """Load park and sentinel data."""
+    park_data = gpd.read_file(park_path)
+    sentinel_data = rasterio.open(sentinel_path)
+    return park_data, sentinel_data
+
+
+def calculate_intersection_bounds(park_data, sentinel_data):
+    """Calculate intersection bounding box of park and sentinel data."""
+    minx, miny, maxx, maxy = park_data.total_bounds
+    sentinel_bounds = sentinel_data.bounds
+    minx = max(minx, sentinel_bounds.left)
+    miny = max(miny, sentinel_bounds.bottom)
+    maxx = min(maxx, sentinel_bounds.right)
+    maxy = min(maxy, sentinel_bounds.top)
+    return minx, miny, maxx, maxy
+
+
+def create_mask(park_data, sentinel_data, bounds):
+    """Create a mask for the park area within the bounds."""
+    minx, miny, maxx, maxy = bounds
+    window = rasterio.windows.from_bounds(minx, miny, maxx, maxy, sentinel_data.transform)
+    sentinel_window_data = sentinel_data.read(window=window)
+
+    mask = np.zeros((sentinel_window_data.shape[1], sentinel_window_data.shape[2]), dtype=np.uint8)
+    mask = rasterio.features.rasterize(
+        [(geometry, 1) for geometry in park_data.geometry],
+        out_shape=(sentinel_window_data.shape[1], sentinel_window_data.shape[2]),
+        transform=sentinel_data.window_transform(window),
+        fill=0,
+        dtype=np.uint8
+    )
+    return mask, sentinel_window_data, window
+
+
+def save_mask_as_tiff(mask, sentinel_data, window, output_path):
+    """Save the mask array as a GeoTIFF file."""
+    with rasterio.open(
+        output_path,
+        'w',
+        driver='GTiff',
+        height=mask.shape[0],
+        width=mask.shape[1],
+        count=1,
+        dtype=mask.dtype,
+        crs=sentinel_data.crs,
+        transform=sentinel_data.window_transform(window)
+    ) as dst:
+        dst.write(mask, 1)
 
 
 def split_test_train_val():
-    path = "data/parks_urban_data/"
+    path = "data/Seattle_Parks/patches/"
     class1 = "green"
     class2 = "not_green"
 
-    # split the data into train, test and validation
     class1_folders = os.listdir(path + class1)
     class2_folders = os.listdir(path + class2)
 
-    # Create the folders
-    os.mkdir(path + "train")
-    os.mkdir(path + "test")
-    os.mkdir(path + "val")
+    os.makedirs(path + "train/" + class1, exist_ok=True)
+    os.makedirs(path + "train/" + class2, exist_ok=True)
+    os.makedirs(path + "test/" + class1, exist_ok=True)
+    os.makedirs(path + "test/" + class2, exist_ok=True)
+    os.makedirs(path + "val/" + class1, exist_ok=True)
+    os.makedirs(path + "val/" + class2, exist_ok=True)
 
-    os.mkdir(path + "train/" + class1)
-    os.mkdir(path + "train/" + class2)
-
-    os.mkdir(path + "test/" + class1)
-    os.mkdir(path + "test/" + class2)
-
-    os.mkdir(path + "val/" + class1)
-    os.mkdir(path + "val/" + class2)
-
-    # Split the data
     for i in range(len(class1_folders)):
         if i < 0.7 * len(class1_folders):
             os.rename(path + class1 + "/" + class1_folders[i], path + "train/" + class1 + "/" + class1_folders[i])
@@ -42,45 +92,39 @@ def split_test_train_val():
         else:
             os.rename(path + class2 + "/" + class2_folders[i], path + "val/" + class2 + "/" + class2_folders[i])
 
+    # Remove the original folders
+    os.rmdir(path + class1)
+    os.rmdir(path + class2)
 
-
-
-
-
-
-
-# Read tif file
 
 def unload_folders():
-
     path = "data/parks_urban_data/"
     class1 = "green"
     class2 = "not_green"
 
-    # Extract all folders in both class paths
+    # If exists, remove the output folder and its contents
+    if os.path.exists(path + class1):
+        for file in os.listdir(path + class1):
+            os.remove(os.path.join(path + class1, file))
+        os.rmdir(path + class1)
+
     class1_folders = os.listdir(path + class1)
     class2_folders = os.listdir(path + class2)
 
     counter = 0
     for folder in class1_folders:
-        # Extract all tif files in the folder
         tif_files = os.listdir(path + class1 + "/" + folder)
         for tif in tif_files:
-            # move tif file to the class1 folder
             os.rename(path + class1 + "/" + folder + "/" + tif, path + class1 + "/" + str(counter) + ".jpg")
             counter += 1
 
     counter = 0
     for folder in class2_folders:
-        # Extract all tif files in the folder
         tif_files = os.listdir(path + class2 + "/" + folder)
         for tif in tif_files:
-            # move tif file to the class2 folder
             os.rename(path + class2 + "/" + folder + "/" + tif, path + class2 + "/" + str(counter) + ".jpg")
             counter += 1
 
-
-    # Remove empty folders
     for folder in class1_folders:
         os.rmdir(path + class1 + "/" + folder)
 
@@ -89,9 +133,6 @@ def unload_folders():
 
 
 def pre_process_sentinal_data():
-    from PIL import Image
-    import numpy as np
-
     def segment_image(image, patch_size=(256, 256)):
         patches = []
         image_array = np.array(image)
@@ -105,35 +146,37 @@ def pre_process_sentinal_data():
     image = Image.open('data/sent-2/2024-05-14-00_00_2024-05-14-23_59_Sentinel-2_L2A_True_Color.jpg')
     patches = segment_image(image)
 
-    if not os.path.exists('data/sent-2/patches'):
-        os.makedirs('data/sent-2/patches')
-    else:
-        for file in os.listdir('data/sent-2/patches'):
-            os.remove(f'data/sent-2/patches/{file}')
+    os.makedirs('data/sent-2/patches', exist_ok=True)
+    for file in os.listdir('data/sent-2/patches'):
+        os.remove(f'data/sent-2/patches/{file}')
 
     for i, patch in enumerate(patches):
         Image.fromarray(patch).save(f'data/sent-2/patches/patch_{i}.jpg')
 
 
-def resize_images():
-    import cv2
-    import os
 
-    folder = "data/parks_urban_data/val/green"
-    new_folder = "data/resized_parks_urban_data/val/green"
-    # remove the data if exists
-    if os.path.exists(new_folder):
-        for file in os.listdir(new_folder):
-            os.remove(os.path.join(new_folder, file))
-    else:
-        os.makedirs(new_folder)
+# Main execution flow
+def main():
+    # Paths to data
+    park_data_path = "data/Seattle_Parks/park_mask.geojson"
+    sentinel_data_path = "data/Seattle_Parks/sentinel_data.tiff"
+    mask_output_path = "data/Seattle_Parks/park_mask.tiff"
+    patches_output_folder = "data/Seattle_Parks/patches"
+
+    # Load data
+    park_data, sentinel_data = load_data(park_data_path, sentinel_data_path)
+
+    # Calculate intersection bounds and create mask
+    bounds = calculate_intersection_bounds(park_data, sentinel_data)
+    mask, sentinel_window_data, window = create_mask(park_data, sentinel_data, bounds)
+
+    # Save mask
+    save_mask_as_tiff(mask, sentinel_data, window, mask_output_path)
+
+    # Additional processing functions
+    split_test_train_val()
 
 
-    for filename in os.listdir(folder):
-        img = cv2.imread(os.path.join(folder, filename))
-        img = cv2.resize(img, (128, 128))
-        cv2.imwrite(os.path.join(new_folder, filename), img)
-
-
-
-resize_images()
+# Run main function
+if __name__ == "__main__":
+    main()
