@@ -1,4 +1,6 @@
 import os
+os.environ['PROJ_LIB'] = r'C:\Users\biehl\miniconda3\envs\geospatial\Library\share\proj'
+
 import cv2
 import numpy as np
 import geopandas as gpd
@@ -7,6 +9,10 @@ import rasterio.features
 import rasterio.windows
 import matplotlib.pyplot as plt
 from PIL import Image
+
+from pyproj import CRS
+crs = CRS.from_epsg(4326)
+print(crs)
 
 
 
@@ -42,7 +48,22 @@ def create_mask(park_data, sentinel_data, bounds):
         fill=0,
         dtype=np.uint8
     )
+
+    # Make sure they have the same spatial dimensions
+    assert mask.shape[0] == sentinel_window_data.shape[1]
+    
+
     return mask, sentinel_window_data, window
+
+def trim_tiff_image(image_path, output_path, bounds):
+    """Trim the tiff image to the bounds."""
+    with rasterio.open(image_path) as src:
+        window = rasterio.windows.from_bounds(*bounds, src.transform)
+        data = src.read(window=window)
+        profile = src.profile
+
+    with rasterio.open(output_path, 'w', **profile) as dst:
+        dst.write(data)
 
 
 def save_mask_as_tiff(mask, sentinel_data, window, output_path):
@@ -158,10 +179,9 @@ def pre_process_sentinal_data():
 # Main execution flow
 def main():
     # Paths to data
-    park_data_path = "data/Seattle_Parks/park_mask.geojson"
-    sentinel_data_path = "data/Seattle_Parks/sentinel_data.tiff"
-    mask_output_path = "data/Seattle_Parks/park_mask.tiff"
-    patches_output_folder = "data/Seattle_Parks/patches"
+    park_data_path = "data/Sacremento_Parks/park_mask.geojson"
+    sentinel_data_path = "data/Sacremento_Parks/sentinel_data.tiff"
+    mask_output_path = "data/Sacremento_Parks/park_mask.tiff"
 
     # Load data
     park_data, sentinel_data = load_data(park_data_path, sentinel_data_path)
@@ -169,12 +189,18 @@ def main():
     # Calculate intersection bounds and create mask
     bounds = calculate_intersection_bounds(park_data, sentinel_data)
     mask, sentinel_window_data, window = create_mask(park_data, sentinel_data, bounds)
+    # Save window data
+    with rasterio.open("data/Sacremento_Parks/sentinel_window_data.tiff", 'w', **sentinel_data.profile) as dst:
+        dst.write(sentinel_window_data)
+
+    # Trim tiff image
+    # trim_tiff_image(sentinel_data_path, mask_output_path, bounds)
 
     # Save mask
     save_mask_as_tiff(mask, sentinel_data, window, mask_output_path)
 
     # Additional processing functions
-    split_test_train_val()
+    # split_test_train_val()
 
 
 # Run main function
