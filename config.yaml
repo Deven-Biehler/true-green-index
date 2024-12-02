@@ -1,0 +1,16 @@
+DATASET:
+  IMAGE_PATH: './semantic_drone_dataset/training_set/images/'
+  MASK_PATH: './semantic_drone_dataset/training_set/gt/semantic/label_images/'
+  MODEL_PATH: './gdrive/MyDrive/segmentation/model/'
+  PREDICT_PATH: './gdrive/MyDrive/segmentation/image/'
+
+PARAM:
+  NUM_CLASSES: 24
+  BATCH_SIZE: 3
+  INITIAL_LR: 1.0e-3
+  STOP_EPOCH: 7
+  WEIGHT_DECAY: 1.0e-4
+
+PREPROCESS:
+  MEAN: [0.485, 0.456, 0.406]
+  STD: [0.229, 0.224, 0.225]
